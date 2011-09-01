@@ -1,0 +1,16 @@
+#!/usr/bin/env mkb
+#Builder mkb file for the s3eFacebook extension on android
+
+platform LINUX
+
+buildtype(SCONS, ARM)
+
+option dll
+
+define S3E_ANDROID
+
+option output-name="lib/android/libs3eFacebook.so"
+option output-name-debug="lib/android/libs3eFacebook_d.so"
+define S3E_BUILD_EXT
+
+subproject s3eFacebook_build
