@@ -186,15 +186,30 @@ s3eResult s3eFacebookInit_platform()
 
     //Get the environment from the pointer
     JNIEnv* env = s3eEdkJNIGetEnv();
+    jobject obj = NULL;
+    jmethodID cons = NULL;
+
+    const JNINativeMethod nativeMethodDefs[] =
+    {
+        {"LoginCallback",        "(Ljava/lang/Object;Z)V",        (void *)&s3eFacebook_LoginCallback},
+        {"DialogCallback",       "(Ljava/lang/Object;Z)V",        (void *)&s3eFacebook_DialogCallback},
+        {"RequestCallback",      "(Ljava/lang/Object;Z)V",        (void *)&s3eFacebook_RequestCallback},
+    };
 
     //Get the extension class
-    jclass cls = env->FindClass("s3eFacebook");
+    jclass cls = s3eEdkAndroidFindClass("s3eFacebook");
+    if (!cls)
+        goto end;
 
     //Get its constructor
-    jmethodID cons = env->GetMethodID(cls, "<init>", "()V");
+    cons = env->GetMethodID(cls, "<init>", "()V");
+    if (!cons)
+        goto end;
 
     //Construct the java class
-    g_Obj = env->NewObject(cls, cons);
+    obj = env->NewObject(cls, cons);
+    if (!obj)
+        goto end;
 
     //Get all the extension methods
     g_s3eFBInit = env->GetMethodID(cls, "s3eFBInit", "(Ljava/lang/String;)Ljava/lang/Object;");
@@ -337,17 +352,9 @@ s3eResult s3eFacebookInit_platform()
     if (!g_s3eFBRequest_ResponseDictionaryItemAsString)
         goto end;
 
-    end:
-
-    const JNINativeMethod nativeMethodDefs[] =
-    {
-        {"LoginCallback",        "(Ljava/lang/Object;Z)V",        (void *)&s3eFacebook_LoginCallback},
-        {"DialogCallback",        "(Ljava/lang/Object;Z)V",        (void *)&s3eFacebook_DialogCallback},
-        {"RequestCallback",        "(Ljava/lang/Object;Z)V",        (void *)&s3eFacebook_RequestCallback},
-    };
-
     env->RegisterNatives(cls, nativeMethodDefs, sizeof(nativeMethodDefs)/sizeof(nativeMethodDefs[0]));
 
+end:
     jthrowable exc = env->ExceptionOccurred();
     if (exc)
     {
@@ -357,6 +364,11 @@ s3eResult s3eFacebookInit_platform()
         return S3E_RESULT_ERROR;
     }
 
+    g_Obj = env->NewGlobalRef(obj);
+    env->DeleteLocalRef(obj);
+    env->DeleteGlobalRef(cls);
+
+    IwTrace(FACEBOOK, ("s3eFacebook init success"));
 
     //Add any platform-specific initialisation code here
     return S3E_RESULT_SUCCESS;
@@ -364,8 +376,14 @@ s3eResult s3eFacebookInit_platform()
 
 void s3eFacebookTerminate_platform()
 {
+    JNIEnv* env = s3eEdkJNIGetEnv();
+    env->DeleteGlobalRef(g_Obj);
+    g_Obj = NULL;
+    
     s3eEdkFreeOS(g_RetStr);
     g_RetStr = NULL;
+
+    IwTrace(FACEBOOK, ("s3eFacebook terminate success"));
 }
 
 s3eFBSession* s3eFBInit_platform(const char* appId)
