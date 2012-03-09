@@ -10,6 +10,7 @@
 # EULA and have agreed to be bound by its terms.
 #
 use_legacy_extavailable
+errors
 
 include:
 
@@ -43,6 +44,19 @@ include:
 struct s3eFBSession;
 struct s3eFBDialog;
 struct s3eFBRequest;
+
+/**
+ * Facebook Errors.
+ * @see s3eFacebookGetError, s3eFacebookGetErrorString
+ * @par Required Header Files
+ * s3eFacebook.h
+ */
+typedef enum s3eFacebookError
+{
+    S3E_FACEBOOK_ERR_NONE         = 0,    ///< No error.
+    S3E_FACEBOOK_ERR_PARAM        = 1,    ///< Invalid parameter.
+    S3E_FACEBOOK_ERR_UNAVAIL      = 5,    ///< Facebook is unavailable.
+} s3eFacebookError;
 
 /**
  * Response type identifiers.
@@ -113,12 +127,12 @@ s3eResult s3eFBTerminate(s3eFBSession* session) S3E_RESULT_ERROR run_on_os_threa
  * login dialog will be shown.
  *
  * @param session        The session to log in.
- * @param permissions
- * @param numPermissions
  * @param cb             A callback function that will be called when the
  *                       function logs in. Pass NULL if you do not wish to
  *                       use callbacks.
  * @param cbData         User data that will be passed to the callback.
+ * @param permissions
+ * @param numPermissions
  * @par Required Header Files
  * s3eFacebook.h
  */
@@ -216,7 +230,7 @@ s3eResult s3eFBDialog_Show(s3eFBDialog* dialog, s3eFBDialogCallbackFn cb, void* 
  * Poll the dialog for an error.
  *
  * @param dialog       The dialog
- * @return  S3E_TRUE is the dialog resulted in an error.
+ * @return  S3E_TRUE if the dialog resulted in an error.
  * @par Required Header Files
  * s3eFacebook.h
  */
