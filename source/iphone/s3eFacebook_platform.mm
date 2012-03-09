@@ -114,7 +114,7 @@ typedef enum s3eFacebookCallback
     S3E_FACEBOOK_CALLBACK_MAX
 } s3eFacebookCallback;
 
-// Internal data structures..
+// Internal data structures
 //----------------------------------------------------------------------------
 
 struct s3eFBSession
@@ -156,16 +156,18 @@ struct s3eFBRequest
 @property(readonly) Facebook* session;
 @property(readonly) s3eBool loggedIn;
 
--(id) initWithSession:(Facebook *)session appId:(NSString *)appId;
+-(id) initWithAppId:(NSString *)appId;
 
 -(void) loginWithCallback:(s3eFBLoginCallbackFn) cb cbData:(void *)cbData permissions:(NSArray *)permissions;
 -(void) logout;
--(void) handleLoginResult:(s3eResult) result;
+-(void) handleLoginResult:(s3eResult) result saveAccessToken:(BOOL) save;
+-(void) handleLogout;
 -(void) handleOpenURL:(NSURL *)URL;
 
 - (void)fbDidLogin;
 - (void)fbDidNotLogin:(BOOL)cancelled;
 - (void)fbDidLogout;
+- (void)fbSessionInvalidated;
 @end
 
 //----------------------------------------------------------------------------
@@ -269,12 +271,23 @@ struct s3eFBRequest
 @synthesize session = m_session;
 @synthesize loggedIn = m_loggedIn;
 
--(id) initWithSession:(Facebook *)session appId:(NSString *)appId
+-(id) initWithAppId:(NSString *)appId
 {
     if (!(self = [super init]))
         return nil;
 
-    m_session = [session retain];
+    Facebook *_session = [[Facebook alloc] initWithAppId:appId andDelegate:self];
+
+    if (_session == nil)
+    {
+        IwTrace(FACEBOOK_VERBOSE, ("Failed New Session"));
+        [self release];
+        return nil;
+    }
+
+    IwTrace(FACEBOOK_VERBOSE, ("New Session: %x", (int)_session));
+
+    m_session = _session;
     m_appId = [appId retain];
     m_s3eFBSession.m_delegate = self;
 
@@ -306,20 +319,52 @@ struct s3eFBRequest
          );
     }
 
-    // Actually log in..
-    [m_session authorize:permissions delegate:self];
+    // See if we have a valid saved session before logging in...
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    
+    id storedAccessToken = [defaults objectForKey:@"FBAccessTokenKey"];
+    id storedExpirationDate = [defaults objectForKey:@"FBExpirationDateKey"];
+                               
+    if (storedAccessToken && storedExpirationDate)
+    {
+        IwTrace(FACEBOOK_VERBOSE, 
+            ("Found stored access token and expiration date.  Resuming session."));
+        m_session.accessToken = storedAccessToken;
+        m_session.expirationDate = storedExpirationDate;
+    }
+    
+    if ([m_session isSessionValid])
+    {
+        //The stored session is valid, login is successful!
+        [self handleLoginResult: S3E_RESULT_SUCCESS  saveAccessToken:NO];
+    }
+    else
+    {
+        // The stored session isn't valid, do the login
+        [m_session authorize:permissions];
+    }
 }
 
 -(void) logout
 {
-    [m_session logout:self];
+    [m_session logout];
 }
 
--(void) handleLoginResult:(s3eResult) result
+-(void) handleLoginResult:(s3eResult) result saveAccessToken:(BOOL) save;
 {
-    //IwTrace(FACEBOOK_VERBOSE, ("Session is %s", [m_session isSessionValid] ? "valid" : "not valid"));
+    IwTrace(FACEBOOK_VERBOSE, 
+        ("Session is %s", [m_session isSessionValid] ? "valid" : "not valid"));
 
     m_loggedIn = (result == S3E_RESULT_SUCCESS) ? S3E_TRUE : S3E_FALSE;
+
+    if (save == YES)
+    {
+        // Save the current access token and expiration date for later retrieval
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        [defaults setObject:[m_session accessToken] forKey:@"FBAccessTokenKey"];
+        [defaults setObject:[m_session expirationDate] forKey:@"FBExpirationDateKey"];
+        [defaults synchronize];
+    }
 
     if (m_loginCallback)
     {
@@ -335,6 +380,17 @@ struct s3eFBRequest
     }
 }
 
+-(void) handleLogout
+{
+    m_loggedIn = S3E_FALSE;
+
+    // Clear the saved access token and expiration date
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults removeObjectForKey:@"FBAccessTokenKey"];
+    [defaults removeObjectForKey:@"FBExpirationDateKey"];
+    [defaults synchronize];
+}
+
 - (void)handleOpenURL:(NSURL *)URL;
 {
 #ifdef IW_USE_TRACING
@@ -343,27 +399,35 @@ struct s3eFBRequest
     IwTrace(FACEBOOK_VERBOSE, ("handleOpenURL Call with %s", _url));
 
     // Call FB controller method
-    BOOL handled = [m_session handleOpenURL:URL];
-
-    [URL release];
+    [m_session handleOpenURL:URL];
 }
 
 - (void)fbDidLogin
 {
-    IwTrace(FACEBOOK_VERBOSE,("didLogin"));
-    [self handleLoginResult:S3E_RESULT_SUCCESS];
+    IwTrace(FACEBOOK_VERBOSE,("fbDidLogin"));
+    
+    [self handleLoginResult:S3E_RESULT_SUCCESS saveAccessToken:YES];
 }
 
 - (void)fbDidNotLogin:(BOOL)cancelled;
 {
-    IwTrace(FACEBOOK_VERBOSE,("sessionDidNotLogin "));
-    [self handleLoginResult:S3E_RESULT_ERROR];
+    IwTrace(FACEBOOK_VERBOSE,("fbDidNotLogin "));
+
+    [self handleLoginResult:S3E_RESULT_ERROR saveAccessToken:NO];
 }
 
 - (void)fbDidLogout
 {
-    IwTrace(FACEBOOK_VERBOSE,("sessionDidLogout"));
-    m_loggedIn = S3E_FALSE;
+    IwTrace(FACEBOOK_VERBOSE,("fbDidLogout"));
+
+    [self handleLogout];
+}
+
+- (void)fbSessionInvalidated
+{
+    IwTrace(FACEBOOK_VERBOSE,("fbSessionInvalidated"));
+
+    [self handleLogout];
 }
 
 @end
@@ -685,7 +749,7 @@ struct s3eFBRequest
 
 - (void)request:(FBRequest*)request didFailWithError:(NSError*)error
 {
-    IwTrace(FACEBOOK_VERBOSE,("didFailWithError"));
+    IwTrace(FACEBOOK_VERBOSE,("didFailWithError: %s", [[error description] UTF8String]));
 
     m_error = S3E_TRUE;
     m_errorCode = [error code];
@@ -819,27 +883,21 @@ void s3eFacebookTerminate_platform()
 s3eFBSession* s3eFBInit_platform(const char *appId)
 {
     NSString *_appId = ToNSString(appId);
-    Facebook *_session = [[Facebook alloc] initWithAppId:_appId];
+    
+    s3eFBSessionDelegate *_delegate =
+        [[s3eFBSessionDelegate alloc] initWithAppId:_appId];
 
-    if (_session == nil)
+    if (_delegate == nil)
     {
         IwTrace(FACEBOOK_VERBOSE, ("Failed New Session"));
         return NULL;
     }
 
-    s3eFBSessionDelegate *_delegate =
-        [[s3eFBSessionDelegate alloc] initWithSession:_session appId:_appId];
-
-    // Delegate has retained session, so we can release our reference
-    [_session release];
-
-    IwTrace(FACEBOOK_VERBOSE, ("New Session: %x", (int)_session));
-
     s3eFBSession *s3eSession = &(_delegate->m_s3eFBSession);
     g_s3eFBSession = s3eSession;
 
     // Register callback
-    s3eEdkCallbacksRegister(
+    s3eEdkCallbacksRegisterInternal(
         S3E_EDK_INTERNAL,
         S3E_EDK_CALLBACK_MAX,
         S3E_EDK_IPHONE_HANDLEOPENURL,
@@ -947,8 +1005,22 @@ const char* s3eFBSession_AccessToken_platform(s3eFBSession* session)
 {
     if(session)
     {
-        NSString* token = session->m_delegate.session.accessToken;
-        return [token UTF8String];
+        Facebook* _session = [session->m_delegate session];
+        NSString* _accessToken = _session ? _session.accessToken : nil;
+
+        if (_accessToken)
+        {
+            static char accessToken[0x100];
+            const int len = sizeof(accessToken);
+            bzero(accessToken, len);
+
+            // "you should copy the C string if it needs to store it outside of the"
+            // "autorelease context in which the C string is created."
+            const char* pTmp = [_accessToken UTF8String];
+            strncpy(accessToken, pTmp, len-1);
+        
+            return accessToken;
+        }
     }
     return NULL;
 }
