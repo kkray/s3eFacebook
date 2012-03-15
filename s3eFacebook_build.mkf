@@ -42,21 +42,30 @@ if {{defined I3D_OS_IPHONE}}
 
     files
     {
+        # Add any iphone-specific files here
+        ["facebook-ios-sdk"]
+        (source/iphone/facebook-ios-sdk/src)
+        Facebook.h
+        Facebook.m
+        FBConnect.h
+        FBDialog.h
+        FBDialog.m
+        FBLoginDialog.h
+        FBLoginDialog.m
+        FBRequest.h
+        FBRequest.m
+        FBDialog.m
+        (source/iphone/facebook-ios-sdk/src/JSON)
+        "NSObject+SBJSON.m"
+        "NSString+SBJSON.m"
+        SBJSON.m
+        SBJsonBase.m
+        SBJsonParser.m
+        SBJsonWriter.m
+
         ["source"]
         (use_first_found, source/iphone, source/generic)
         s3eFacebook_platform.mm
-
-        #Add any iphone-specific files here
-        facebook-ios-sdk/src/FBDialog.m
-        facebook-ios-sdk/src/FBLoginDialog.m
-        facebook-ios-sdk/src/FBRequest.m
-        facebook-ios-sdk/src/Facebook.m
-        facebook-ios-sdk/src/JSON/NSObject_SBJSON.m
-        facebook-ios-sdk/src/JSON/NSString_SBJSON.m
-        facebook-ios-sdk/src/JSON/SBJSON.m
-        facebook-ios-sdk/src/JSON/SBJsonBase.m
-        facebook-ios-sdk/src/JSON/SBJsonParser.m
-        facebook-ios-sdk/src/JSON/SBJsonWriter.m
     }
 }
 
@@ -91,6 +100,9 @@ files
     s3eFacebook.cpp
 
     ["h"]
+    (h)
+    s3eFacebook.h
+
     (source/h)
     s3eFacebook_internal.h
     s3eFacebook_autodefs.h
